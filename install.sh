@@ -1,0 +1,429 @@
+#!/usr/bin/env bash
+###############################################################################
+# Talawa Installer
+#
+# Simplifies the installation process for the different Talawa components.
+# Supports installing any combination of:
+#   - Talawa-Admin (React web admin portal)
+#   - Talawa-API   (GraphQL API backend)
+#   - Talawa-Mobile (Flutter mobile app)
+#
+# Prerequisites: Nix package manager
+###############################################################################
+
+set -euo pipefail
+
+INSTALLER_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(dirname "$INSTALLER_DIR")"
+
+# Repository URLs
+REPO_API="https://github.com/PalisadoesFoundation/talawa-api"
+REPO_ADMIN="https://github.com/PalisadoesFoundation/talawa-admin"
+REPO_MOBILE="https://github.com/PalisadoesFoundation/talawa"
+REPO_SCHEMATIC="https://gitlab.com/deltaex/schematic"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+info()    { echo -e "${CYAN}[INFO]${NC} $*"; }
+success() { echo -e "${GREEN}[OK]${NC} $*"; }
+warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
+error()   { echo -e "${RED}[ERROR]${NC} $*"; }
+header()  { echo -e "\n${BOLD}$*${NC}\n"; }
+
+###############################################################################
+# 1. Check for Nix
+###############################################################################
+check_nix() {
+  header "Checking for Nix..."
+
+  if command -v nix &>/dev/null; then
+    success "Nix is installed: $(nix --version)"
+  else
+    error "Nix is not installed on this machine."
+    echo ""
+    echo "Please install Nix by running the following command in your terminal:"
+    echo ""
+    echo -e "  ${BOLD}sh <(curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install) --no-daemon${NC}"
+    echo ""
+    echo "After installing Nix, restart your terminal and re-run this installer."
+    exit 1
+  fi
+}
+
+###############################################################################
+# 2. Prompt for installation option
+###############################################################################
+prompt_option() {
+  header "What would you like to install?"
+
+  echo "  1) Talawa-Admin and Talawa-API"
+  echo "  2) Talawa-Mobile and Talawa-API"
+  echo "  3) Talawa-Admin, Talawa-API, and Talawa-Mobile"
+  echo ""
+
+  while true; do
+    read -rp "Enter your choice [1/2/3]: " CHOICE
+    case "$CHOICE" in
+      1) INSTALL_ADMIN=true;  INSTALL_API=true;  INSTALL_MOBILE=false; break ;;
+      2) INSTALL_ADMIN=false; INSTALL_API=true;  INSTALL_MOBILE=true;  break ;;
+      3) INSTALL_ADMIN=true;  INSTALL_API=true;  INSTALL_MOBILE=true;  break ;;
+      *) warn "Invalid choice. Please enter 1, 2, or 3." ;;
+    esac
+  done
+}
+
+###############################################################################
+# 3. Ensure repositories are cloned
+###############################################################################
+ensure_repo() {
+  local name="$1"
+  local url="$2"
+  local dir="$3"
+
+  if [ -d "$dir" ] && [ -d "$dir/.git" ]; then
+    success "$name already cloned at $dir"
+  elif [ -d "$dir" ] && [ ! -d "$dir/.git" ]; then
+    # Directory exists but is not a git repo — could be a plain copy
+    warn "$name directory exists at $dir but is not a git repository."
+    read -rp "  Continue using it anyway? [y/N]: " USE_EXISTING
+    if [[ ! "$USE_EXISTING" =~ ^[Yy]$ ]]; then
+      error "Please remove or rename $dir and re-run the installer."
+      exit 1
+    fi
+  else
+    echo ""
+    info "$name is not found in the installer directory."
+    echo "  Please clone it by running:"
+    echo ""
+    echo -e "  ${BOLD}git clone $url $dir${NC}"
+    echo ""
+    read -rp "  Would you like me to clone it now? [Y/n]: " DO_CLONE
+    if [[ "$DO_CLONE" =~ ^[Nn]$ ]]; then
+      error "Cannot proceed without $name. Please clone it and re-run."
+      exit 1
+    fi
+    info "Cloning $name..."
+    git clone "$url" "$dir"
+    success "$name cloned successfully."
+  fi
+}
+
+check_repos() {
+  header "Checking required repositories..."
+
+  if [ "$INSTALL_API" = true ]; then
+    ensure_repo "Talawa-API" "$REPO_API" "$ROOT_DIR/talawa-api"
+  fi
+  if [ "$INSTALL_ADMIN" = true ]; then
+    ensure_repo "Talawa-Admin" "$REPO_ADMIN" "$ROOT_DIR/talawa-admin"
+  fi
+  if [ "$INSTALL_MOBILE" = true ]; then
+    ensure_repo "Talawa-Mobile" "$REPO_MOBILE" "$ROOT_DIR/talawa"
+  fi
+}
+
+###############################################################################
+# 4. Schematic setup (for PostgreSQL)
+###############################################################################
+setup_schematic() {
+  header "Setting up Schematic (PostgreSQL manager)..."
+
+  local SCHEMATIC_DIR="$ROOT_DIR/schematic-master"
+
+  if [ -d "$SCHEMATIC_DIR" ]; then
+    success "Schematic directory found at $SCHEMATIC_DIR"
+    echo ""
+    read -rp "  Schematic files already exist. Keep them from the previous run? [Y/n]: " KEEP_SCHEMATIC
+    if [[ "$KEEP_SCHEMATIC" =~ ^[Nn]$ ]]; then
+      warn "Removing existing schematic-master directory..."
+      rm -rf "$SCHEMATIC_DIR"
+      info "Cloning Schematic..."
+      git clone "$REPO_SCHEMATIC" "$SCHEMATIC_DIR"
+      success "Schematic cloned fresh."
+    else
+      success "Keeping existing Schematic files."
+    fi
+  else
+    info "Cloning Schematic..."
+    git clone "$REPO_SCHEMATIC" "$SCHEMATIC_DIR"
+    success "Schematic cloned."
+  fi
+
+  # Initialize Schematic and start the database
+  info "Initializing Schematic PostgreSQL environment..."
+  info "Running 'nix develop' in schematic-master to set up the database..."
+
+  # Check if a Schematic server directory already exists
+  local SRV_DIR
+  SRV_DIR=$(find "$SCHEMATIC_DIR/srv" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1 || true)
+
+  if [ -n "$SRV_DIR" ]; then
+    local SRV_NAME
+    SRV_NAME=$(basename "$SRV_DIR")
+    info "Found existing Schematic server: $SRV_NAME"
+
+    # Upgrade and start the server
+    info "Upgrading and starting Schematic server '$SRV_NAME'..."
+    (
+      cd "$SCHEMATIC_DIR"
+      nix develop --command bash -c "scm upgrade srv/$SRV_NAME -n" 2>&1 || {
+        warn "Schematic upgrade returned non-zero; continuing anyway..."
+      }
+      nix develop --command bash -c "scm start srv/$SRV_NAME" 2>&1 || {
+        warn "Schematic start returned non-zero; the DB may already be running."
+      }
+    )
+  else
+    # Create a new Schematic server for Talawa
+    info "No existing Schematic server found. Creating one for Talawa..."
+    (
+      cd "$SCHEMATIC_DIR"
+      # Create a minimal server definition
+      mkdir -p srv/talawa
+      cat > srv/talawa/default.nix << 'SRVNIX'
+{ pkgs, lib, ... }:
+
+lib.database {
+  name = "talawa";
+  port = 55303;
+  user = "root";
+  password = "P9awGuzEajcnd9Kzhz";
+  dependencies = [];
+}
+SRVNIX
+      info "Upgrading Schematic server 'talawa'..."
+      nix develop --command bash -c "scm upgrade srv/talawa -n" 2>&1 || {
+        warn "Schematic upgrade had issues; will fall back to built-in PostgreSQL."
+      }
+      info "Starting Schematic server 'talawa'..."
+      nix develop --command bash -c "scm start srv/talawa" 2>&1 || {
+        warn "Schematic start had issues; will fall back to built-in PostgreSQL."
+      }
+    )
+  fi
+
+  success "Schematic database setup complete."
+}
+
+###############################################################################
+# 5. Set up Talawa-API and Talawa-Admin via nix-shell (default.nix)
+###############################################################################
+setup_api_and_admin() {
+  header "Setting up Talawa-API and Talawa-Admin..."
+
+  # First, handle Schematic for the database
+  setup_schematic
+
+  # Now run the main default.nix which starts PostgreSQL (or uses Schematic's),
+  # Redis, MinIO, and writes .env files
+  info "Entering Nix shell to start all services (PostgreSQL, Redis, MinIO)..."
+  info "This will also generate .env files for talawa-api and talawa-admin if they don't exist."
+  echo ""
+
+  local DEFAULT_NIX="$INSTALLER_DIR/default.nix"
+  if [ ! -f "$DEFAULT_NIX" ]; then
+    error "default.nix not found at $DEFAULT_NIX"
+    error "Cannot set up the development environment without it."
+    exit 1
+  fi
+
+  # Run the nix-shell using the installer's own default.nix, but from the
+  # project root so that relative paths to talawa-api/ and talawa-admin/ work.
+  (
+    cd "$ROOT_DIR"
+    nix-shell "$DEFAULT_NIX" --run "
+      echo ''
+      echo '--- Installing dependencies ---'
+      echo ''
+
+      # Install API dependencies
+      if [ -d talawa-api ]; then
+        echo '=> Installing talawa-api dependencies...'
+        cd talawa-api
+        pnpm install
+        echo '=> Running database migrations...'
+        pnpm run apply_drizzle_migrations || echo 'Migration warning: check output above'
+        cd ..
+        echo ''
+      fi
+
+      # Install Admin dependencies
+      if [ -d talawa-admin ]; then
+        echo '=> Installing talawa-admin dependencies...'
+        cd talawa-admin
+        pnpm install
+        cd ..
+        echo ''
+      fi
+
+      echo '--- Setup complete ---'
+    "
+  )
+
+  success "Talawa-API and Talawa-Admin are set up."
+  echo ""
+  info "To start the development environment in the future, run:"
+  echo ""
+  echo -e "  ${BOLD}cd $ROOT_DIR && nix-shell $INSTALLER_DIR/default.nix${NC}"
+  echo ""
+  echo "  Then in separate terminals:"
+  echo -e "  ${BOLD}cd talawa-api && pnpm run start_development_server${NC}"
+  if [ "$INSTALL_ADMIN" = true ]; then
+    echo -e "  ${BOLD}cd talawa-admin && pnpm run serve${NC}"
+  fi
+  echo ""
+}
+
+###############################################################################
+# 6. Set up Talawa-Mobile
+###############################################################################
+setup_mobile() {
+  header "Setting up Talawa-Mobile..."
+
+  # The flake.nix and flake.lock for the mobile environment live inside this
+  # installer directory — no external android-emulator/ folder needed.
+  local FLAKE_DIR="$INSTALLER_DIR"
+
+  if [ ! -f "$FLAKE_DIR/flake.nix" ]; then
+    error "flake.nix not found at $FLAKE_DIR"
+    error "Cannot set up the mobile environment without it."
+    exit 1
+  fi
+
+  echo "  How would you like to do mobile development?"
+  echo ""
+  echo "  1) With an Android emulator (downloads ~10 GB of SDK + system images)"
+  echo "  2) With a physical device (leaner SDK, ~6 GB)"
+  echo ""
+
+  local MOBILE_MODE
+  while true; do
+    read -rp "  Enter your choice [1/2]: " MOBILE_CHOICE
+    case "$MOBILE_CHOICE" in
+      1) MOBILE_MODE="default"; break ;;
+      2) MOBILE_MODE="physical"; break ;;
+      *) warn "Invalid choice. Please enter 1 or 2." ;;
+    esac
+  done
+
+  info "Setting up Flutter + Android SDK environment ($MOBILE_MODE mode)..."
+  echo ""
+  info "This may take a while on first run as Nix downloads the Android SDK..."
+  echo ""
+
+  (
+    cd "$FLAKE_DIR"
+
+    if [ "$MOBILE_MODE" = "default" ]; then
+      # Full emulator setup
+      nix develop --command bash -c "
+        echo ''
+        echo '--- Mobile environment ready ---'
+        echo ''
+
+        # Install Flutter dependencies for the mobile app
+        if [ -d '$ROOT_DIR/talawa' ]; then
+          echo '=> Installing Talawa mobile dependencies...'
+          cd '$ROOT_DIR/talawa'
+          flutter pub get
+          echo ''
+        fi
+
+        echo 'To create an AVD (first time only):'
+        echo '  avdmanager create avd --name phone --package \"system-images;android-35;google_apis;\$(uname -m | sed s/arm64/arm64-v8a/ | sed s/x86_64/x86_64/)\"'
+        echo ''
+        echo 'To launch the emulator:'
+        echo '  emulator -avd phone -skin 720x1280 -noaudio -no-snapshot-load -no-snapshot'
+        echo ''
+        echo 'To run the app:'
+        echo '  cd $ROOT_DIR/talawa && flutter run'
+        echo ''
+      "
+    else
+      # Physical device setup
+      nix develop .#physical --command bash -c "
+        echo ''
+        echo '--- Mobile environment ready (physical device mode) ---'
+        echo ''
+
+        # Install Flutter dependencies for the mobile app
+        if [ -d '$ROOT_DIR/talawa' ]; then
+          echo '=> Installing Talawa mobile dependencies...'
+          cd '$ROOT_DIR/talawa'
+          flutter pub get
+          echo ''
+        fi
+
+        echo 'Connect your device via USB and enable USB debugging.'
+        echo 'Verify with: adb devices'
+        echo ''
+        echo 'To run the app:'
+        echo '  cd $ROOT_DIR/talawa && flutter run'
+        echo ''
+      "
+    fi
+  )
+
+  success "Talawa-Mobile environment is set up."
+  echo ""
+  info "To re-enter the mobile dev environment in the future, run:"
+  echo ""
+  if [ "$MOBILE_MODE" = "default" ]; then
+    echo -e "  ${BOLD}cd $FLAKE_DIR && nix develop${NC}"
+  else
+    echo -e "  ${BOLD}cd $FLAKE_DIR && nix develop .#physical${NC}"
+  fi
+  echo ""
+}
+
+###############################################################################
+# Main
+###############################################################################
+main() {
+  echo ""
+  echo -e "${BOLD}====================================${NC}"
+  echo -e "${BOLD}   Talawa Installer${NC}"
+  echo -e "${BOLD}====================================${NC}"
+  echo ""
+
+  # Step 1: Check Nix
+  check_nix
+
+  # Step 2: Prompt for what to install
+  prompt_option
+
+  # Step 3: Check repositories
+  check_repos
+
+  # Step 4 & 5: Set up API/Admin if selected
+  if [ "$INSTALL_API" = true ] && { [ "$INSTALL_ADMIN" = true ] || [ "$INSTALL_MOBILE" = true ]; }; then
+    setup_api_and_admin
+  fi
+
+  # Step 6: Set up Mobile if selected
+  if [ "$INSTALL_MOBILE" = true ]; then
+    setup_mobile
+  fi
+
+  # Final summary
+  header "Installation Complete!"
+  echo "  Installed components:"
+  [ "$INSTALL_API" = true ]    && echo -e "    ${GREEN}+${NC} Talawa-API"
+  [ "$INSTALL_ADMIN" = true ]  && echo -e "    ${GREEN}+${NC} Talawa-Admin"
+  [ "$INSTALL_MOBILE" = true ] && echo -e "    ${GREEN}+${NC} Talawa-Mobile"
+  echo ""
+  echo "  Login credentials (API):"
+  echo "    Email:    administrator@example.com"
+  echo "    Password: password"
+  echo ""
+  success "Happy coding!"
+  echo ""
+}
+
+main "$@"
