@@ -270,18 +270,7 @@ setup_api_and_admin() {
     "
   )
 
-  success "Talawa-API and Talawa-Admin are set up."
-  echo ""
-  info "To start the development environment in the future, run:"
-  echo ""
-  echo -e "  ${BOLD}cd $INSTALLER_DIR && nix-shell${NC}"
-  echo ""
-  echo "  Then in separate terminals:"
-  echo -e "  ${BOLD}cd talawa-api && pnpm run start_development_server${NC}"
-  if [ "$INSTALL_ADMIN" = true ]; then
-    echo -e "  ${BOLD}cd talawa-admin && pnpm run serve${NC}"
-  fi
-  echo ""
+  success "Talawa-API and Talawa-Admin dependencies installed."
 }
 
 ###############################################################################
@@ -374,16 +363,11 @@ setup_mobile() {
     fi
   )
 
-  success "Talawa-Mobile environment is set up."
-  echo ""
-  info "To re-enter the mobile dev environment in the future, run:"
-  echo ""
-  if [ "$MOBILE_MODE" = "default" ]; then
-    echo -e "  ${BOLD}cd $FLAKE_DIR && nix develop${NC}"
-  else
-    echo -e "  ${BOLD}cd $FLAKE_DIR && nix develop .#physical${NC}"
-  fi
-  echo ""
+  success "Talawa-Mobile dependencies installed."
+
+  # Save mobile mode so main() can launch the right flake shell
+  MOBILE_FLAKE_DIR="$FLAKE_DIR"
+  MOBILE_FLAKE_MODE="$MOBILE_MODE"
 }
 
 ###############################################################################
@@ -415,7 +399,7 @@ main() {
     setup_mobile
   fi
 
-  # Final summary
+  # ── Write autostart marker so the shellHook starts dev servers ───────────
   header "Installation Complete!"
   echo "  Installed components:"
   [ "$INSTALL_API" = true ]    && echo -e "    ${GREEN}+${NC} Talawa-API"
@@ -426,8 +410,49 @@ main() {
   echo "    Email:    administrator@example.com"
   echo "    Password: Password1!"
   echo ""
-  success "Happy coding!"
-  echo ""
+
+  mkdir -p "$INSTALLER_DIR/.local"
+
+  if [ "$INSTALL_API" = true ] || [ "$INSTALL_ADMIN" = true ]; then
+    # Write autostart marker for the nix-shell shellHook
+    cat > "$INSTALLER_DIR/.local/autostart" << AUTOSTART
+AUTOSTART_API=${INSTALL_API}
+AUTOSTART_ADMIN=${INSTALL_ADMIN}
+AUTOSTART
+
+    if [ "$INSTALL_MOBILE" = true ]; then
+      echo ""
+      info "Mobile development uses a separate Nix flake environment."
+      info "Open a new terminal and run:"
+      echo ""
+      if [ "${MOBILE_FLAKE_MODE:-default}" = "default" ]; then
+        echo -e "  ${BOLD}cd $INSTALLER_DIR && nix develop${NC}"
+      else
+        echo -e "  ${BOLD}cd $INSTALLER_DIR && nix develop .#physical${NC}"
+      fi
+      echo -e "  ${BOLD}cd talawa && flutter run${NC}"
+      echo ""
+    fi
+
+    success "Dropping you into the development shell..."
+    echo ""
+
+    # exec replaces this process with an interactive nix-shell — the shellHook
+    # will start PG, Redis, MinIO, and (via the autostart marker) the API and
+    # Admin dev servers automatically.
+    cd "$INSTALLER_DIR"
+    exec nix-shell "$INSTALLER_DIR/default.nix"
+  elif [ "$INSTALL_MOBILE" = true ]; then
+    # Mobile-only install — drop into the flake dev shell
+    success "Dropping you into the mobile development shell..."
+    echo ""
+    cd "$INSTALLER_DIR"
+    if [ "${MOBILE_FLAKE_MODE:-default}" = "default" ]; then
+      exec nix develop
+    else
+      exec nix develop .#physical
+    fi
+  fi
 }
 
 main "$@"

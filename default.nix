@@ -244,6 +244,25 @@ ALLOW_LOGS=
 ADMINENV
     fi
 
+    # ── Auto-start dev servers (triggered by install.sh) ─────────────────────
+    if [ -f "$TALAWA_ROOT/.local/autostart" ]; then
+      source "$TALAWA_ROOT/.local/autostart"
+      rm -f "$TALAWA_ROOT/.local/autostart"
+
+      if [ "''${AUTOSTART_API:-}" = "true" ] && [ -d "$TALAWA_ROOT/talawa-api" ]; then
+        echo "→ Starting talawa-api development server (log: .local/api.log)..."
+        (cd "$TALAWA_ROOT/talawa-api" && pnpm run start_development_server > "$TALAWA_ROOT/.local/api.log" 2>&1 &)
+      fi
+
+      if [ "''${AUTOSTART_ADMIN:-}" = "true" ] && [ -d "$TALAWA_ROOT/talawa-admin" ]; then
+        echo "→ Starting talawa-admin development server (log: .local/admin.log)..."
+        (cd "$TALAWA_ROOT/talawa-admin" && pnpm run serve > "$TALAWA_ROOT/.local/admin.log" 2>&1 &)
+      fi
+
+      # Give servers a moment to bind their ports
+      sleep 2
+    fi
+
     # ── Summary ────────────────────────────────────────────────────────────────
     echo ""
     echo "Talawa development environment ready"
@@ -251,8 +270,8 @@ ADMINENV
     echo "  Redis       localhost:${redisPort}"
     echo "  MinIO       localhost:${minioPort}   (console: http://localhost:${minioConsolePort}, user: ${minioUser})"
     echo ""
-    echo "  Start API:    cd talawa-api && pnpm run start_development_server"
-    echo "  Start Admin:  cd talawa-admin && pnpm run serve"
+    echo "  API:    http://127.0.0.1:${apiPort}    (log: .local/api.log)"
+    echo "  Admin:  http://localhost:${adminPort}   (log: .local/admin.log)"
     echo ""
     echo "  Login:  administrator@example.com / Password1!"
     echo ""
