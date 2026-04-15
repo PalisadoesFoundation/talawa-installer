@@ -103,9 +103,9 @@ Talawa-Installer/            # Everything needed to install Talawa
   flake.lock                 # Pinned flake dependencies
   README.md                  # This file
 
-# Repos cloned into the parent directory during installation:
-../talawa-api/               # GraphQL API backend
-../talawa-admin/             # React web admin portal
-../talawa/                   # Flutter mobile app
-../schematic-master/         # Schematic PostgreSQL manager
+  # Cloned into this directory during installation:
+  talawa-api/                # GraphQL API backend
+  talawa-admin/              # React web admin portal
+  talawa/                    # Flutter mobile app
+  schematic-master/          # Schematic PostgreSQL manager
 ```

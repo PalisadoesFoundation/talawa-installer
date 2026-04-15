@@ -118,13 +118,13 @@ check_repos() {
   header "Checking required repositories..."
 
   if [ "$INSTALL_API" = true ]; then
-    ensure_repo "Talawa-API" "$REPO_API" "$ROOT_DIR/talawa-api"
+    ensure_repo "Talawa-API" "$REPO_API" "$INSTALLER_DIR/talawa-api"
   fi
   if [ "$INSTALL_ADMIN" = true ]; then
-    ensure_repo "Talawa-Admin" "$REPO_ADMIN" "$ROOT_DIR/talawa-admin"
+    ensure_repo "Talawa-Admin" "$REPO_ADMIN" "$INSTALLER_DIR/talawa-admin"
   fi
   if [ "$INSTALL_MOBILE" = true ]; then
-    ensure_repo "Talawa-Mobile" "$REPO_MOBILE" "$ROOT_DIR/talawa"
+    ensure_repo "Talawa-Mobile" "$REPO_MOBILE" "$INSTALLER_DIR/talawa"
   fi
 }
 
@@ -134,7 +134,7 @@ check_repos() {
 setup_schematic() {
   header "Setting up Schematic (PostgreSQL manager)..."
 
-  local SCHEMATIC_DIR="$ROOT_DIR/schematic-master"
+  local SCHEMATIC_DIR="$INSTALLER_DIR/schematic-master"
 
   if [ -d "$SCHEMATIC_DIR" ]; then
     success "Schematic directory found at $SCHEMATIC_DIR"
@@ -159,32 +159,29 @@ setup_schematic() {
   info "Initializing Schematic PostgreSQL environment..."
   info "Running 'nix develop' in schematic-master to set up the database..."
 
-  # Check if a Schematic server directory already exists
-  local SRV_DIR
-  SRV_DIR=$(find "$SCHEMATIC_DIR/srv" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -1 || true)
+  # Look specifically for a Talawa server definition — ignore any bundled
+  # example/demo servers that ship with the Schematic repository (e.g. world-*).
+  local TALAWA_SRV="$SCHEMATIC_DIR/srv/talawa"
 
-  if [ -n "$SRV_DIR" ]; then
-    local SRV_NAME
-    SRV_NAME=$(basename "$SRV_DIR")
-    info "Found existing Schematic server: $SRV_NAME"
+  if [ -d "$TALAWA_SRV" ] && [ -f "$TALAWA_SRV/default.nix" ]; then
+    info "Found existing Talawa server definition at srv/talawa"
 
     # Upgrade and start the server
-    info "Upgrading and starting Schematic server '$SRV_NAME'..."
+    info "Upgrading and starting Schematic server 'talawa'..."
     (
       cd "$SCHEMATIC_DIR"
-      nix develop --command bash -c "scm upgrade srv/$SRV_NAME -n" 2>&1 || {
+      nix develop --command bash -c "scm upgrade srv/talawa -n" 2>&1 || {
         warn "Schematic upgrade returned non-zero; continuing anyway..."
       }
-      nix develop --command bash -c "scm start srv/$SRV_NAME" 2>&1 || {
+      nix develop --command bash -c "scm start srv/talawa" 2>&1 || {
         warn "Schematic start returned non-zero; the DB may already be running."
       }
     )
   else
     # Create a new Schematic server for Talawa
-    info "No existing Schematic server found. Creating one for Talawa..."
+    info "No Talawa server definition found. Creating srv/talawa..."
     (
       cd "$SCHEMATIC_DIR"
-      # Create a minimal server definition
       mkdir -p srv/talawa
       cat > srv/talawa/default.nix << 'SRVNIX'
 { pkgs, lib, ... }:
@@ -233,10 +230,10 @@ setup_api_and_admin() {
     exit 1
   fi
 
-  # Run the nix-shell using the installer's own default.nix, but from the
-  # project root so that relative paths to talawa-api/ and talawa-admin/ work.
+  # Run the nix-shell using the installer's own default.nix from the installer
+  # directory where the repos are cloned.
   (
-    cd "$ROOT_DIR"
+    cd "$INSTALLER_DIR"
     nix-shell "$DEFAULT_NIX" --run "
       echo ''
       echo '--- Installing dependencies ---'
@@ -270,7 +267,7 @@ setup_api_and_admin() {
   echo ""
   info "To start the development environment in the future, run:"
   echo ""
-  echo -e "  ${BOLD}cd $ROOT_DIR && nix-shell $INSTALLER_DIR/default.nix${NC}"
+  echo -e "  ${BOLD}cd $INSTALLER_DIR && nix-shell${NC}"
   echo ""
   echo "  Then in separate terminals:"
   echo -e "  ${BOLD}cd talawa-api && pnpm run start_development_server${NC}"
@@ -328,9 +325,9 @@ setup_mobile() {
         echo ''
 
         # Install Flutter dependencies for the mobile app
-        if [ -d '$ROOT_DIR/talawa' ]; then
+        if [ -d '$INSTALLER_DIR/talawa' ]; then
           echo '=> Installing Talawa mobile dependencies...'
-          cd '$ROOT_DIR/talawa'
+          cd '$INSTALLER_DIR/talawa'
           flutter pub get
           echo ''
         fi
@@ -342,7 +339,7 @@ setup_mobile() {
         echo '  emulator -avd phone -skin 720x1280 -noaudio -no-snapshot-load -no-snapshot'
         echo ''
         echo 'To run the app:'
-        echo '  cd $ROOT_DIR/talawa && flutter run'
+        echo '  cd $INSTALLER_DIR/talawa && flutter run'
         echo ''
       "
     else
@@ -353,9 +350,9 @@ setup_mobile() {
         echo ''
 
         # Install Flutter dependencies for the mobile app
-        if [ -d '$ROOT_DIR/talawa' ]; then
+        if [ -d '$INSTALLER_DIR/talawa' ]; then
           echo '=> Installing Talawa mobile dependencies...'
-          cd '$ROOT_DIR/talawa'
+          cd '$INSTALLER_DIR/talawa'
           flutter pub get
           echo ''
         fi
@@ -364,7 +361,7 @@ setup_mobile() {
         echo 'Verify with: adb devices'
         echo ''
         echo 'To run the app:'
-        echo '  cd $ROOT_DIR/talawa && flutter run'
+        echo '  cd $INSTALLER_DIR/talawa && flutter run'
         echo ''
       "
     fi
