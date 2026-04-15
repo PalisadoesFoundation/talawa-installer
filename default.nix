@@ -117,6 +117,7 @@ pkgs.mkShell {
         echo "host all all 127.0.0.1/32 md5" >> "$PG_DATA/pg_hba.conf"
         echo "listen_addresses = '127.0.0.1'" >> "$PG_DATA/postgresql.conf"
         echo "port = ${pgPort}" >> "$PG_DATA/postgresql.conf"
+        echo "unix_socket_directories = '$PG_DATA'" >> "$PG_DATA/postgresql.conf"
       fi
 
       # Start the cluster
@@ -125,9 +126,14 @@ pkgs.mkShell {
         pg_ctl start -D "$PG_DATA" -l "$PG_LOG" -w -s
       fi
 
+      # Verify PostgreSQL is accepting connections
+      if ! pg_isready -q -h 127.0.0.1 -p ${pgPort}; then
+        echo "FATAL: PostgreSQL failed to start. See $PG_LOG" >&2
+        exit 1
+      fi
+
       # Create the application database on first run
-      if ! psql -h 127.0.0.1 -p ${pgPort} -U "${pgUser}" -lqt \
-            --no-password \
+      if ! PGPASSWORD="${pgPassword}" psql -h 127.0.0.1 -p ${pgPort} -U "${pgUser}" -lqt \
             2>/dev/null \
           | cut -d '|' -f1 | grep -qw "${pgDatabase}"; then
         echo "→ Creating database '${pgDatabase}'..."
@@ -248,7 +254,7 @@ ADMINENV
     echo "  Start API:    cd talawa-api && pnpm run start_development_server"
     echo "  Start Admin:  cd talawa-admin && pnpm run serve"
     echo ""
-    echo "  Login:  administrator@example.com / password"
+    echo "  Login:  administrator@example.com / Password1!"
     echo ""
   '';
 }

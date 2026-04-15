@@ -93,7 +93,7 @@
               echo "  Talawa Mobile Development Environment"
               echo "══════════════════════════════════════════════════════"
               echo ""
-              echo "  Flutter:     $(flutter --version --machine 2>/dev/null | head -1 || echo 'available')"
+              echo "  Flutter:     $(flutter --version 2>/dev/null | head -1 || echo 'available')"
               echo "  Android SDK: $ANDROID_HOME"
               echo "  Java:        $JAVA_HOME"
               echo ""

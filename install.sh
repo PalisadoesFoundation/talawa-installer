@@ -20,7 +20,7 @@ ROOT_DIR="$(dirname "$INSTALLER_DIR")"
 REPO_API="https://github.com/PalisadoesFoundation/talawa-api"
 REPO_ADMIN="https://github.com/PalisadoesFoundation/talawa-admin"
 REPO_MOBILE="https://github.com/PalisadoesFoundation/talawa"
-REPO_SCHEMATIC="https://gitlab.com/deltaex/schematic"
+REPO_SCHEMATIC="https://gitlab.com/deltaex/schematic.git"
 
 # Colors for output
 RED='\033[0;31m'
@@ -184,14 +184,21 @@ setup_schematic() {
       cd "$SCHEMATIC_DIR"
       mkdir -p srv/talawa
       cat > srv/talawa/default.nix << 'SRVNIX'
-{ pkgs, lib, ... }:
+stdargs @ { scm, pkgs, ... }:
 
-lib.database {
-  name = "talawa";
-  port = 55303;
-  user = "root";
-  password = "P9awGuzEajcnd9Kzhz";
-  dependencies = [];
+scm.database rec {
+    guid = "D0TALAWA00DBGUID";
+    name = "talawa";
+    server = scm.server rec {
+        postgresql = pkgs.postgresql_18;
+        guid = "S0TALAWA00SRVGID";
+        name = "talawa";
+        dbname = "talawa";
+        port = "55303";
+        user = "root";
+        password = "P9awGuzEajcnd9Kzhz";
+    };
+    dependencies = [];
 }
 SRVNIX
       info "Upgrading Schematic server 'talawa'..."
@@ -245,7 +252,7 @@ setup_api_and_admin() {
         cd talawa-api
         pnpm install
         echo '=> Running database migrations...'
-        pnpm run apply_drizzle_migrations || echo 'Migration warning: check output above'
+        pnpm run apply_drizzle_migrations
         cd ..
         echo ''
       fi
@@ -417,7 +424,7 @@ main() {
   echo ""
   echo "  Login credentials (API):"
   echo "    Email:    administrator@example.com"
-  echo "    Password: password"
+  echo "    Password: Password1!"
   echo ""
   success "Happy coding!"
   echo ""
