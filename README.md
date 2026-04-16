@@ -64,25 +64,57 @@ The installer enters the root `default.nix` via `nix-shell`, which:
 - Runs `pnpm install` in both packages
 - Applies Drizzle database migrations for the API
 
-After this step, you can start the servers:
-
-```bash
-# From the project root, enter the Nix shell:
-nix-shell
-
-# Then in separate terminals:
-cd talawa-api && pnpm run start_development_server
-cd talawa-admin && pnpm run serve
-```
-
 ### 6. Mobile setup
 
 If Talawa-Mobile was selected, the installer asks whether you want to develop with:
 
-1. **An Android emulator** — uses `nix develop` in `android-emulator/` to download the full SDK with system images (~10 GB)
+1. **An Android emulator** — downloads the full SDK with system images (~10 GB) via `nix develop`
 2. **A physical device** — uses `nix develop .#physical` for a leaner SDK (~6 GB)
 
-Either path sets up Flutter, the Android SDK, and Java, then runs `flutter pub get` in the mobile repo. The installer prints instructions for creating an AVD (emulator) or connecting a physical device.
+Either path sets up Flutter, the Android SDK, and Java, then runs `flutter pub get` in the mobile repo.
+
+### 7. Auto-starting the development servers
+
+Once dependencies are installed, the installer drops you directly into an interactive `nix-shell` with the dev servers already running in the background:
+
+- **Talawa-API** is started with `pnpm run start_development_server` — output streamed to `.local/api.log`
+- **Talawa-Admin** is started with `pnpm run serve` — output streamed to `.local/admin.log`
+
+You stay in the shell so you can tail the logs, run `pnpm` commands, or interact with the database directly. The installer's shell summary shows the URLs:
+
+```
+API:    http://127.0.0.1:4000    (log: .local/api.log)
+Admin:  http://localhost:4321     (log: .local/admin.log)
+```
+
+To watch the servers as they come up:
+
+```bash
+tail -f .local/api.log
+tail -f .local/admin.log
+```
+
+#### Mobile in a separate terminal
+
+The mobile environment uses a different Nix flake (for Flutter + Android SDK), so it can't share the same shell. If you selected mobile, open a second terminal and run:
+
+```bash
+cd Talawa-Installer
+nix develop                  # or: nix develop .#physical
+cd talawa && flutter run
+```
+
+#### Re-entering later
+
+The autostart only fires once (on the initial install). On subsequent runs, just enter `nix-shell` from the installer directory — PostgreSQL, Redis, and MinIO will come back up, but the API and Admin dev servers are left to you:
+
+```bash
+cd Talawa-Installer
+nix-shell
+# then in separate terminals:
+cd talawa-api && pnpm run start_development_server
+cd talawa-admin && pnpm run serve
+```
 
 ## Default credentials
 
